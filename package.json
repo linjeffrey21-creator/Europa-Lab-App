@@ -1,0 +1,14 @@
+{
+  "name": "europa-lab",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Europa Lab — Interactive Virtual Mechanics Laboratory with AI-Assisted Equipment Reconstruction and Educator Assignment Tools",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "serve": "node --experimental-strip-types scripts/serve.mjs"
+  },
+  "dependencies": {
+    "@vercel/analytics": "^2.0.1"
+  }
+}

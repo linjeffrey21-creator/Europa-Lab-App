@@ -1,0 +1,32 @@
+# Environment & Secrets
+.env
+.env.*
+*.env
+*.secret
+*.key
+*.pem
+server-secrets.json
+*.log
+gemini_debug.log
+
+# Scratch & Debug Test Scripts
+scratch_test_*.mjs
+test_*.mjs
+test_*.cjs
+test_*.txt
+backup-original/
+scratch/
+tests/*.png
+tests/*.html
+
+# Dependencies & System
+node_modules/
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE & Editor files
+.vscode/
+.idea/
+*.swp
+*~
