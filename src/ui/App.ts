@@ -2565,7 +2565,7 @@ export const App: React.FC = () => {
                 } }, 'Reset camera'),
                 !hideGravity && h('button', { type: 'button', 'aria-pressed': showForces,
                   onClick: () => { setShowForces(!showForces); closeCameraMenu(); },
-                }, 'Show forces'),
+                }, showForces ? 'Hide forces' : 'Show forces'),
                 isExp && h('button', {
                   type: 'button', 'aria-pressed': showAirflow,
                   onClick: () => { setShowAirflow(!showAirflow); closeCameraMenu(); },
@@ -2618,10 +2618,10 @@ export const App: React.FC = () => {
                     ] : []),
                   ])
                 ),
-                showForces && !hideGravity && elapsedTime > 0 && elapsedTime < summary.time
+                showForces && !hideGravity && elapsedTime < summary.time
                   && h('section', { className: 'readout-section' },
                   h('div', { className: 'readout-section-title' },
-                    h('strong', null, 'Forces'),
+                    h('strong', null, elapsedTime === 0 ? 'Forces at launch' : 'Forces'),
                     h('span', null, 'Mass ' + formatMeasurement((liveMassKg * 1000)) + ' g')
                   ),
                   renderReadings([

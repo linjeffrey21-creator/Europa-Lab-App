@@ -1441,6 +1441,7 @@ function buildRealisticClassroomEnvironment(
   // 2. Painted Institutional Block Upper Wall & Architectural Wainscoting (High-Texture Bump Mapped)
   const upperWallTex = lightweight ? null : createWallBrickTexture();
   const upperWallBump = lightweight ? null : createWallBumpTexture();
+  for (const texture of [upperWallTex, upperWallBump]) texture?.repeat.set(backWallWidth / 1.4, 5);
   const upperWallMat = new THREE.MeshStandardMaterial({
     map: upperWallTex,
     bumpMap: upperWallBump,
@@ -1461,10 +1462,10 @@ function buildRealisticClassroomEnvironment(
   const leftWallMat = upperWallMat.clone();
   if (upperWallTex && upperWallBump) {
     const leftTex = upperWallTex.clone();
-    leftTex.repeat.set(Math.round(leftWallDepth / 1.4), 5);
+    leftTex.repeat.set(leftWallDepth / 1.4, 5);
     leftTex.needsUpdate = true;
     const leftBump = upperWallBump.clone();
-    leftBump.repeat.set(Math.round(leftWallDepth / 1.4), 5);
+    leftBump.repeat.set(leftWallDepth / 1.4, 5);
     leftBump.needsUpdate = true;
     leftWallMat.map = leftTex;
     leftWallMat.bumpMap = leftBump;
@@ -1499,6 +1500,7 @@ function buildRealisticClassroomEnvironment(
   // Lower Wainscoting Paneling, Dark Vinyl Cove Baseboard & Warm Hardwood Chair Rail
   const wainscotTex = lightweight ? null : createWainscotTexture();
   const wainscotBump = lightweight ? null : createWainscotBumpTexture();
+  for (const texture of [wainscotTex, wainscotBump]) texture?.repeat.set(1, 1);
   const wainscotMat = new THREE.MeshStandardMaterial({
     map: wainscotTex,
     bumpMap: wainscotBump,
@@ -1517,57 +1519,38 @@ function buildRealisticClassroomEnvironment(
     roughness: 0.48,
     metalness: 0.06,
   });
-  const addRightTrim = (name: string, height: number, thickness: number, centerY: number, material: THREE.Material) => {
-    const trim = new THREE.Mesh(new THREE.BoxGeometry(leftWallDepth, height, thickness), material);
-    trim.name = name;
-    trim.rotation.y = -Math.PI / 2;
-    trim.position.set(roomRightX - thickness / 2 - 0.001, floorY + centerY, sideWallCenterZ);
+  // Face the trim into the room so it cuts away with the wall when viewed from outside.
+  const trimProfiles = [
+    { name: 'wainscot', height: 1.15, centerY: 0.575, inset: 0.016, material: wainscotMat },
+    { name: 'baseboard', height: 0.12, centerY: 0.06, inset: 0.029, material: baseboardMat },
+    { name: 'chair-rail', height: 0.05, centerY: 1.15, inset: 0.033, material: chairRailMat },
+  ];
+  const addWallTrim = (
+    profile: typeof trimProfiles[number], side: 'left' | 'back' | 'right',
+    start: number, end: number, wall: number, rotation: number
+  ) => {
+    const width = end - start;
+    if (width <= 0) return;
+    const geometry = new THREE.PlaneGeometry(width, profile.height);
+    const uv = geometry.getAttribute('uv');
+    for (let i = 0; i < uv.count; i++) uv.setX(i, uv.getX(i) * width / 1.5);
+    const trim = new THREE.Mesh(geometry, profile.material);
+    trim.name = side + '-' + profile.name;
+    trim.rotation.y = rotation;
+    const center = (start + end) / 2;
+    trim.position.set(side === 'back' ? center : wall, floorY + profile.centerY, side === 'back' ? wall : center);
     trim.receiveShadow = !lightweight;
     roomGroup.add(trim);
   };
-  addRightTrim('right-wainscot', 1.15, 0.015, 0.575, wainscotMat);
-  addRightTrim('right-baseboard', 0.12, 0.028, 0.06, baseboardMat);
-  addRightTrim('right-chair-rail', 0.05, 0.032, 1.15, chairRailMat);
-
-  // Back wall wainscot stops cleanly at left corner chair rail and at cabinet gables
-  // so it never intersects or penetrates the left wall trim or the cabinet!
-  const backWainscotSegments = [
-    { startX: leftWallX, endX: cabLeft },
-    { startX: cabRight, endX: roomRightX },
-  ];
-  for (const seg of backWainscotSegments) {
-    const addBackTrim = (name: string, height: number, depth: number, centerY: number, offset: number, material: THREE.Material) => {
-      const start = seg.startX + (seg.startX === leftWallX ? offset + depth / 2 : 0);
-      const width = seg.endX - start;
-      if (width <= 0.05) return;
-      const trim = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), material);
-      trim.name = 'back-' + name;
-      trim.position.set(start + width / 2, floorY + centerY, backWallZ + offset);
-      roomGroup.add(trim);
-    };
-    addBackTrim('wainscot', 1.15, 0.015, 0.575, 0.008, wainscotMat);
-    addBackTrim('baseboard', 0.12, 0.028, 0.06, 0.015, baseboardMat);
-    addBackTrim('chair-rail', 0.05, 0.032, 1.15, 0.016, chairRailMat);
+  for (const profile of trimProfiles) {
+    const backFace = backWallZ + profile.inset;
+    const leftFace = leftWallX + profile.inset;
+    const rightFace = roomRightX - profile.inset;
+    addWallTrim(profile, 'left', backFace, frontZ, leftFace, Math.PI / 2);
+    addWallTrim(profile, 'back', leftFace, cabLeft, backFace, 0);
+    addWallTrim(profile, 'back', cabRight, rightFace, backFace, 0);
+    addWallTrim(profile, 'right', backFace, frontZ, rightFace, -Math.PI / 2);
   }
-
-  // Left wall matching wainscot, baseboard, and chair rail meeting back wall cleanly at 90°
-  const leftWainscot = new THREE.Mesh(new THREE.BoxGeometry(leftWallDepth, 1.15, 0.015), wainscotMat);
-  leftWainscot.name = 'left-wainscot';
-  leftWainscot.rotation.y = Math.PI / 2;
-  leftWainscot.position.set(leftWallX + 0.008, floorY + 0.575, backWallZ + leftWallDepth / 2);
-  roomGroup.add(leftWainscot);
-
-  const leftBaseboard = new THREE.Mesh(new THREE.BoxGeometry(leftWallDepth, 0.12, 0.028), baseboardMat);
-  leftBaseboard.name = 'left-baseboard';
-  leftBaseboard.rotation.y = Math.PI / 2;
-  leftBaseboard.position.set(leftWallX + 0.015, floorY + 0.06, backWallZ + leftWallDepth / 2);
-  roomGroup.add(leftBaseboard);
-
-  const leftChairRail = new THREE.Mesh(new THREE.BoxGeometry(leftWallDepth, 0.05, 0.032), chairRailMat);
-  leftChairRail.name = 'left-chair-rail';
-  leftChairRail.rotation.y = Math.PI / 2;
-  leftChairRail.position.set(leftWallX + 0.016, floorY + 1.15, backWallZ + leftWallDepth / 2);
-  roomGroup.add(leftChairRail);
 
   // 3. Heavy-Duty Lab Bench Tubular Steel Legs & Cross-Braces
   const legHeight = 0.755;
@@ -2617,7 +2600,7 @@ export const LabViewportCanvas: React.FC<LabViewportProps> = ({
       st.radius = Math.max(minRadius, Math.min(11, st.radius));
 
       const x = st.target.x + st.radius * Math.sin(st.phi) * Math.sin(st.theta);
-      const y = st.target.y + st.radius * Math.cos(st.phi);
+      const y = Math.max(st.target.y + st.radius * Math.cos(st.phi), freeCameraBoundsRef.current?.min.y ?? -Infinity);
       const z = st.target.z + st.radius * Math.sin(st.phi) * Math.cos(st.theta);
 
       camera.position.set(x, y, z);
@@ -3365,11 +3348,12 @@ export const LabViewportCanvas: React.FC<LabViewportProps> = ({
     ballMesh.material.roughness = aluminumBall ? 0.29 : 0.18;
 
     // Draw the individual forces on the marble. The resultant is shown in the readings.
-    if (showForces && inFlight && viewMode !== 'marble') {
+    if (showForces && elapsedTime < summary.time) {
       const air = isExp ? experimentalEnv : undefined;
       const forces = calculateProjectileForces(params.gravity, currentState,
         air?.projectileDiameter ?? equipment.dimensions.projectileDiameter, projMaterial ?? 'steel', air);
-      const scale = 0.22 / Math.max(forces.weight, forces.drag, 1e-9);
+      const diagramSize = viewMode === 'marble' ? Math.max(0.026, rBall * 2.8) : 0.22;
+      const scale = diagramSize / Math.max(forces.weight, forces.drag, 1e-9);
       const components = [
         { direction: new THREE.Vector3(0, -1, 0), magnitude: forces.weight, color: '#2563eb', symbol: 'g' as const },
         { direction: new THREE.Vector3(forces.dragX, forces.dragY, 0).normalize(), magnitude: forces.drag, color: '#ea580c', symbol: 'd' as const },
@@ -3378,9 +3362,10 @@ export const LabViewportCanvas: React.FC<LabViewportProps> = ({
         if (magnitude <= 0) continue;
         const length = magnitude * scale;
         trajectoryHolder.add(createForceArrowMesh(direction, ballMesh.position, length, color));
-        if (length >= 0.022) {
+        if (length >= diagramSize * 0.1) {
           const label = createForceLabelSprite(symbol);
-          label.position.copy(ballMesh.position).addScaledVector(direction, length + 0.055);
+          label.scale.multiplyScalar(diagramSize / 0.22);
+          label.position.copy(ballMesh.position).addScaledVector(direction, length + diagramSize * 0.25);
           trajectoryHolder.add(label);
         }
       }
