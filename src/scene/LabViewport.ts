@@ -2,7 +2,6 @@ import React from 'react';
 import { updateSavedChalkboardPreset } from '../ui/chalkboard-notes.ts';
 import * as THREE from 'three';
 import { loadBenchInstrumentProps } from './benchInstrumentProps.ts';
-import { createPhotogate, findBeamCrossing } from './photogate.ts';
 import { createAirflow } from './airflow.ts';
 import { launcherAssetLoaders } from './launcherAssets.ts';
 import type {
@@ -38,7 +37,7 @@ import {
 } from './materials.ts';
 
 const h = React.createElement;
-const { useEffect, useMemo, useRef, useState } = React;
+const { useEffect, useRef, useState } = React;
 
 function useLauncherAsset(equipmentId: string) {
   const [loadedId, setLoadedId] = useState<string | null>(null);
@@ -2401,7 +2400,6 @@ export interface LabViewportProps {
   showLabels: boolean;
   showForces?: boolean;
   showAirflow?: boolean;
-  flightRunning?: boolean;
   lightweight: boolean;
   equipment: ProjectileApparatusSpec;
   viewMode: CameraViewMode;
@@ -2425,7 +2423,6 @@ export const LabViewportCanvas: React.FC<LabViewportProps> = ({
   showLabels,
   showForces = true,
   showAirflow = false,
-  flightRunning = false,
   lightweight,
   equipment,
   viewMode,
@@ -2442,10 +2439,6 @@ export const LabViewportCanvas: React.FC<LabViewportProps> = ({
   chalkboardCustomImage,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const [gate, setGate] = useState<ReturnType<typeof createPhotogate>>();
-  const [gateDistance, setGateDistance] = useState(0.8);
-  const [gateHeight, setGateHeight] = useState(0.99);
-  const gateDragRef = useRef<{ group?: THREE.Object3D; distance: number; max: number }>({ distance: 0.8, max: 3 });
 
   const viewModeRef = useRef(viewMode);
   viewModeRef.current = viewMode;
@@ -2498,17 +2491,10 @@ export const LabViewportCanvas: React.FC<LabViewportProps> = ({
     Math.max(idealSummary.range, summary.range, targetDistanceM ?? 0),
     mountMode
   );
-  const maxGateDistance = Math.max(0.25, Math.floor((ruler.right - muzzleX - 0.2) * 100) / 100);
-  const gateX = Math.min(gateDistance, maxGateDistance);
-  gateDragRef.current = { group: gate?.group, distance: gateX, max: maxGateDistance };
-  const gatePath = useMemo(() => sampleTrajectory(params, 256, undefined, experimentalEnv),
-    [params, experimentalEnv]);
-  const crossing = useMemo(() => findBeamCrossing(gatePath, gateX, gateHeight - rBall, rBall),
-    [gatePath, gateX, gateHeight, rBall]);
-  const gateDetected = elapsedTime > 0 && crossing !== undefined && elapsedTime >= crossing;
   const windSpeed = experimentalEnv?.windSpeed ?? 0;
+  const inFlight = elapsedTime > 0 && elapsedTime < summary.time;
   const airflowAnimating = showAirflow && isExp && (experimentalEnv?.airPressureKPa ?? 0) > 0.01
-    && (Math.abs(windSpeed) > 0.01 || flightRunning);
+    && (Math.abs(windSpeed) > 0.01 || inFlight);
   const airflowState = useRef({ left: muzzleX, right: ruler.right, windSpeed, vx: 0, vy: 0, flying: false, rBall });
   airflowState.current = {
     left: muzzleX,
@@ -2516,7 +2502,7 @@ export const LabViewportCanvas: React.FC<LabViewportProps> = ({
     windSpeed,
     vx: currentState.vx,
     vy: currentState.vy,
-    flying: flightRunning && elapsedTime < summary.time,
+    flying: inFlight,
     rBall,
   };
 
@@ -2683,29 +2669,7 @@ export const LabViewportCanvas: React.FC<LabViewportProps> = ({
       keys.delete(e.code);
       if (!keys.size) clearKeys();
     };
-    const gateRay = new THREE.Raycaster();
-    const gatePointer = new THREE.Vector2();
-    const dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0));
-    const dragPoint = new THREE.Vector3();
-    let gateDrag: { pointerId: number; offset: number } | undefined;
-    const aimGateRay = (e: PointerEvent) => {
-      const rect = dom.getBoundingClientRect();
-      gatePointer.set((e.clientX - rect.left) / rect.width * 2 - 1, 1 - (e.clientY - rect.top) / rect.height * 2);
-      gateRay.setFromCamera(gatePointer, camera);
-    };
     const onPointerDown = (e: PointerEvent) => {
-      const currentGate = gateDragRef.current;
-      if (e.button === 0 && !e.shiftKey && currentGate.group) {
-        aimGateRay(e);
-        const hit = gateRay.intersectObject(currentGate.group, true)[0];
-        if (hit) {
-          dragPlane.constant = -hit.point.y;
-          gateDrag = { pointerId: e.pointerId, offset: currentGate.distance - hit.point.x };
-          dom.setPointerCapture(e.pointerId);
-          dom.style.cursor = 'grabbing';
-          return;
-        }
-      }
       if (cameraLockedRef.current) return;
       if (viewModeRef.current === 'free') dom.focus({ preventScroll: true });
       orbitStateRef.current.isDragging = true;
@@ -2716,14 +2680,6 @@ export const LabViewportCanvas: React.FC<LabViewportProps> = ({
     };
 
     const onPointerMove = (e: PointerEvent) => {
-      if (gateDrag?.pointerId === e.pointerId) {
-        aimGateRay(e);
-        if (gateRay.ray.intersectPlane(dragPlane, dragPoint)) {
-          const distance = Math.round((dragPoint.x + gateDrag.offset) * 100) / 100;
-          setGateDistance(THREE.MathUtils.clamp(distance, 0.25, gateDragRef.current.max));
-        }
-        return;
-      }
       const st = orbitStateRef.current;
       if (!st.isDragging || cameraLockedRef.current) return;
       const dx = e.clientX - st.lastX;
@@ -2753,10 +2709,6 @@ export const LabViewportCanvas: React.FC<LabViewportProps> = ({
     };
 
     const onPointerUp = (e: PointerEvent) => {
-      if (gateDrag?.pointerId === e.pointerId) {
-        gateDrag = undefined;
-        dom.style.cursor = '';
-      }
       orbitStateRef.current.isDragging = false;
       try {
         dom.releasePointerCapture(e.pointerId);
@@ -2797,7 +2749,6 @@ export const LabViewportCanvas: React.FC<LabViewportProps> = ({
     dom.addEventListener('pointermove', onPointerMove);
     dom.addEventListener('pointerup', onPointerUp);
     dom.addEventListener('pointercancel', onPointerUp);
-    dom.addEventListener('lostpointercapture', onPointerUp);
     dom.addEventListener('keydown', onKeyDown);
     dom.addEventListener('keyup', onKeyUp);
     dom.addEventListener('blur', clearKeys);
@@ -2811,7 +2762,6 @@ export const LabViewportCanvas: React.FC<LabViewportProps> = ({
       dom.removeEventListener('pointermove', onPointerMove);
       dom.removeEventListener('pointerup', onPointerUp);
       dom.removeEventListener('pointercancel', onPointerUp);
-      dom.removeEventListener('lostpointercapture', onPointerUp);
       dom.removeEventListener('keydown', onKeyDown);
       dom.removeEventListener('keyup', onKeyUp);
       dom.removeEventListener('blur', clearKeys);
@@ -2954,36 +2904,19 @@ export const LabViewportCanvas: React.FC<LabViewportProps> = ({
     if (!dynamicGroup) return;
     let active = true;
     let instruments: THREE.Group | undefined;
-    let photogate: ReturnType<typeof createPhotogate>;
     loadBenchInstrumentProps(lightweight).then((props) => {
       if (!active) return;
       instruments = props;
       props.position.set(ruler.left + 1.28, 0, -0.65);
       dynamicGroup.add(props);
-      photogate = createPhotogate(props);
-      if (photogate) {
-        dynamicGroup.add(photogate.group);
-        setGate(photogate);
-      }
     }).catch((error) => {
       if (active) console.warn('Bench props could not be displayed:', error);
     });
     return () => {
       active = false;
       instruments?.removeFromParent();
-      photogate?.group.removeFromParent();
-      photogate?.dispose();
     };
   }, [ruler.left, lightweight]);
-
-  useEffect(() => {
-    if (!gate) return;
-    gate.place(muzzleX + gateX, gateHeight, zMountOffset);
-    gate.setDetected(gateDetected);
-    const scene = sceneRef.current;
-    const camera = cameraRef.current;
-    if (scene && camera) rendererRef.current?.render(scene, camera);
-  }, [gate, muzzleX, gateX, gateHeight, zMountOffset, gateDetected]);
 
   useEffect(() => {
     const dynamicGroup = dynamicGroupRef.current;
@@ -3530,19 +3463,6 @@ export const LabViewportCanvas: React.FC<LabViewportProps> = ({
       h('span', { className: 'airflow-ideal' }, 'No drag'),
       h('span', { className: 'airflow-experimental' }, 'With drag'),
       h('span', null, `Range Δ ${activeSummary.range - idealSummary.range >= 0 ? '+' : '−'}${Math.round(Math.abs(activeSummary.range - idealSummary.range) * 1000)} mm`)
-    ),
-    gate && h(
-      'details',
-      { className: 'photogate-controls' },
-      h('summary', null, 'Photogate', h('span', { role: 'status', 'data-detected': gateDetected },
-        gateDetected ? 'Marble detected' : 'Beam clear')),
-      h('div', { className: 'photogate-hint' }, 'Drag the gate to move it along the bench.'),
-      h('label', null, `Distance from launcher · ${gateX.toFixed(2)} m`,
-        h('input', { type: 'range', min: 0.25, max: maxGateDistance, step: 0.01, value: gateX,
-          'aria-label': 'Photogate distance', onChange: (event: React.ChangeEvent<HTMLInputElement>) => setGateDistance(Number(event.target.value)) })),
-      h('label', null, `Beam height above tabletop · ${gateHeight.toFixed(2)} m`,
-        h('input', { type: 'range', min: 0.12, max: 2.5, step: 0.01, value: gateHeight,
-          'aria-label': 'Photogate height', onChange: (event: React.ChangeEvent<HTMLInputElement>) => setGateHeight(Number(event.target.value)) }))
     ),
     showLabels && targetDistanceM !== null
       ? h(

@@ -2665,7 +2665,6 @@ export const App: React.FC = () => {
               showLabels,
               showForces: showForces && !hideGravity,
               showAirflow: showAirflow && isExp,
-              flightRunning: simState === 'running',
               lightweight,
               equipment,
               viewMode,
