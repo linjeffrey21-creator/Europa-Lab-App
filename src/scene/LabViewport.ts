@@ -2493,12 +2493,9 @@ export const LabViewportCanvas: React.FC<LabViewportProps> = ({
   );
   const windSpeed = experimentalEnv?.windSpeed ?? 0;
   const inFlight = elapsedTime > 0 && elapsedTime < summary.time;
-  const airflowAnimating = showAirflow && isExp && (experimentalEnv?.airPressureKPa ?? 0) > 0.01
-    && (Math.abs(windSpeed) > 0.01 || inFlight);
-  const airflowState = useRef({ left: muzzleX, right: ruler.right, windSpeed, vx: 0, vy: 0, flying: false, rBall });
+  const airflowEnabled = showAirflow && isExp && (experimentalEnv?.airPressureKPa ?? 0) > 0.01;
+  const airflowState = useRef({ windSpeed, vx: 0, vy: 0, flying: false, rBall });
   airflowState.current = {
-    left: muzzleX,
-    right: ruler.right - 0.12,
     windSpeed,
     vx: currentState.vx,
     vy: currentState.vy,
@@ -2779,17 +2776,21 @@ export const LabViewportCanvas: React.FC<LabViewportProps> = ({
     const camera = cameraRef.current;
     const renderer = rendererRef.current;
     const ball = ballMeshRef.current;
-    if (!airflowAnimating || !scene || !camera || !renderer || !ball) return;
+    if (!airflowEnabled || !scene || !camera || !renderer || !ball) return;
     const airflow = createAirflow(lightweight);
+    airflow.group.visible = false;
     scene.add(airflow.group);
     let frame = 0;
     let previous = 0;
     const animate = (now: number) => {
       const dt = previous ? Math.min((now - previous) / 1000, 0.05) : 0;
       previous = now;
-      const { left, right, windSpeed, vx, vy, flying, rBall } = airflowState.current;
-      airflow.update(dt, left, right, windSpeed, ball.position, vx, vy, flying, rBall);
-      renderer.render(scene, camera);
+      const bounds = freeCameraBoundsRef.current;
+      const { windSpeed, vx, vy, flying, rBall } = airflowState.current;
+      if (bounds) {
+        airflow.group.visible = true;
+        if (airflow.update(dt, bounds, windSpeed, ball.position, vx, vy, flying, rBall)) renderer.render(scene, camera);
+      }
       frame = requestAnimationFrame(animate);
     };
     frame = requestAnimationFrame(animate);
@@ -2798,7 +2799,7 @@ export const LabViewportCanvas: React.FC<LabViewportProps> = ({
       airflow.dispose();
       if (rendererRef.current === renderer) renderer.render(scene, camera);
     };
-  }, [airflowAnimating, lightweight]);
+  }, [airflowEnabled, lightweight]);
 
   useEffect(() => {
     if (viewMode === 'free' && !cameraLocked) rendererRef.current?.domElement.focus({ preventScroll: true });

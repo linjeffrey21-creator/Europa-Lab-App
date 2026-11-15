@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 
 export function createAirflow(lightweight: boolean) {
-  const count = lightweight ? 105 : 224;
+  const count = lightweight ? 1800 : 5600;
   const laneCount = lightweight ? 8 : 14;
   const localCount = laneCount * 7;
-  const ambientPositions = new Float32Array(count * 6);
+  const ambientPositions = new Float32Array(count * 3);
   const localPositions = new Float32Array(localCount * 6);
   const ambientGeometry = new THREE.BufferGeometry();
   const localGeometry = new THREE.BufferGeometry();
@@ -12,38 +12,60 @@ export function createAirflow(lightweight: boolean) {
   const local = new THREE.BufferAttribute(localPositions, 3);
   ambientGeometry.setAttribute('position', ambient.setUsage(THREE.DynamicDrawUsage));
   localGeometry.setAttribute('position', local.setUsage(THREE.DynamicDrawUsage));
-  const ambientMaterial = new THREE.LineBasicMaterial({ color: '#087d9a', transparent: true, opacity: 0.56, depthWrite: false });
+  const dot = document.createElement('canvas');
+  dot.width = dot.height = 16;
+  const dotContext = dot.getContext('2d');
+  dotContext?.beginPath();
+  dotContext?.arc(8, 8, 7, 0, Math.PI * 2);
+  if (dotContext) {
+    dotContext.fillStyle = '#fff';
+    dotContext.fill();
+  }
+  const dotTexture = new THREE.CanvasTexture(dot);
+  const ambientMaterial = new THREE.PointsMaterial({
+    color: '#32bed8',
+    size: 0.022,
+    map: dotTexture,
+    transparent: true,
+    opacity: 0.66,
+    alphaTest: 0.08,
+    depthWrite: false,
+  });
   const localMaterial = new THREE.LineBasicMaterial({ color: '#00a9c9', transparent: true, opacity: 0.85, depthWrite: false });
-  const wind = new THREE.LineSegments(ambientGeometry, ambientMaterial);
+  const wind = new THREE.Points(ambientGeometry, ambientMaterial);
   const relative = new THREE.LineSegments(localGeometry, localMaterial);
   wind.frustumCulled = relative.frustumCulled = false;
   const group = new THREE.Group();
   group.add(wind, relative);
   let windTravel = 0;
+  let previousBounds: THREE.Box3 | null = null;
   let relativeTravel = 0;
 
   return {
     group,
-    update(dt: number, left: number, right: number, windSpeed: number,
+    update(dt: number, bounds: THREE.Box3, windSpeed: number,
       ball: THREE.Vector3, vx: number, vy: number, flying: boolean, ballRadius: number) {
-      wind.visible = Math.abs(windSpeed) > 0.01;
-      const length = right - left;
-      if (wind.visible) {
+      const length = bounds.max.x - bounds.min.x;
+      const moving = Math.abs(windSpeed) > 0.01;
+      if (moving || bounds !== previousBounds) {
         windTravel = THREE.MathUtils.euclideanModulo(windTravel + windSpeed * dt, length);
-        const trail = Math.sign(windSpeed) * Math.min(0.22, 0.055 + Math.abs(windSpeed) * 0.025);
+        const height = bounds.max.y - bounds.min.y;
+        const depth = bounds.max.z - bounds.min.z;
         for (let i = 0; i < count; i++) {
-          const x = left + THREE.MathUtils.euclideanModulo(i * length * 0.618 + windTravel, length);
-          const y = 0.18 + (i % 17) * 0.074;
-          const z = ball.z + ((i * 5) % 11 - 5) * 0.047;
-          ambient.setXYZ(i * 2, x, y, z);
-          ambient.setXYZ(i * 2 + 1, THREE.MathUtils.clamp(x - trail, left, right), y, z);
+          const x = bounds.min.x + ((i * 0.8191725 + windTravel / length) % 1) * length;
+          const y = bounds.min.y + (i * 0.6710436 % 1) * height;
+          const z = bounds.min.z + (i * 0.5497005 % 1) * depth;
+          ambient.setXYZ(i, x, y, z);
         }
         ambient.needsUpdate = true;
       }
+      const roomChanged = bounds !== previousBounds;
+      previousBounds = bounds;
 
       const flowX = windSpeed - vx;
       const flowY = -vy;
       const relativeSpeed = Math.hypot(flowX, flowY);
+      const wasVisible = relative.visible;
       relative.visible = flying && relativeSpeed > 0.01;
       if (relative.visible) {
         relative.position.copy(ball);
@@ -61,6 +83,7 @@ export function createAirflow(lightweight: boolean) {
         }
         local.needsUpdate = true;
       }
+      return roomChanged || moving || relative.visible || wasVisible;
     },
     dispose() {
       group.removeFromParent();
@@ -68,6 +91,7 @@ export function createAirflow(lightweight: boolean) {
       localGeometry.dispose();
       ambientMaterial.dispose();
       localMaterial.dispose();
+      dotTexture.dispose();
     },
   };
 }
