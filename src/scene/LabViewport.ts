@@ -3243,7 +3243,7 @@ export const LabViewportCanvas: React.FC<LabViewportProps> = ({
     // Overlay meshes are rebuilt as the shot changes. Cached force sprites are shared.
     const oldMaterials = new Set<THREE.Material>();
     trajectoryHolder.traverse(object => {
-      if (!(object instanceof THREE.Mesh)) return;
+      if (!(object instanceof THREE.Mesh || object instanceof THREE.Line)) return;
       object.geometry.dispose();
       for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
         oldMaterials.add(material);
@@ -3263,14 +3263,11 @@ export const LabViewportCanvas: React.FC<LabViewportProps> = ({
               (s) => new THREE.Vector3(muzzleX + s.x, s.y + rBall, zMountOffset)
             );
             if (idealPts.length >= 2) {
-              const curve = new THREE.CatmullRomCurve3(idealPts);
-              const tubeGeo = new THREE.TubeGeometry(curve, 72, 0.0035, 8, false);
-              const tubeMat = new THREE.MeshBasicMaterial({
-                color: '#d98829',
-                transparent: true,
-                opacity: 0.5,
-              });
-              trajectoryHolder.add(new THREE.Mesh(tubeGeo, tubeMat));
+              const geometry = new THREE.BufferGeometry().setFromPoints(idealPts);
+              const material = new THREE.LineDashedMaterial({ color: '#a1530a', dashSize: 0.045, gapSize: 0.022 });
+              const idealPath = new THREE.Line(geometry, material);
+              idealPath.computeLineDistances();
+              trajectoryHolder.add(idealPath);
             }
           }
         }
@@ -3529,6 +3526,11 @@ export const LabViewportCanvas: React.FC<LabViewportProps> = ({
     'div',
     { style: { width: '100%', height: '100%', position: 'relative' } },
     h('div', { ref: containerRef, style: { width: '100%', height: '100%' } }),
+    isExp && showAirflow && showTrajectory && showTheory && h('div', { className: 'airflow-legend' },
+      h('span', { className: 'airflow-ideal' }, 'No drag'),
+      h('span', { className: 'airflow-experimental' }, 'With drag'),
+      h('span', null, `Range Δ ${activeSummary.range - idealSummary.range >= 0 ? '+' : '−'}${Math.round(Math.abs(activeSummary.range - idealSummary.range) * 1000)} mm`)
+    ),
     gate && h(
       'details',
       { className: 'photogate-controls' },
