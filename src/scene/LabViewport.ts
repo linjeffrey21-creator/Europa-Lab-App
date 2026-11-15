@@ -3,6 +3,7 @@ import { updateSavedChalkboardPreset } from '../ui/chalkboard-notes.ts';
 import * as THREE from 'three';
 import { loadBenchInstrumentProps } from './benchInstrumentProps.ts';
 import { createPhotogate, findBeamCrossing } from './photogate.ts';
+import { createAirflow } from './airflow.ts';
 import { launcherAssetLoaders } from './launcherAssets.ts';
 import type {
   LaunchParameters,
@@ -2399,6 +2400,8 @@ export interface LabViewportProps {
   showTrajectory: boolean;
   showLabels: boolean;
   showForces?: boolean;
+  showAirflow?: boolean;
+  flightRunning?: boolean;
   lightweight: boolean;
   equipment: ProjectileApparatusSpec;
   viewMode: CameraViewMode;
@@ -2421,6 +2424,8 @@ export const LabViewportCanvas: React.FC<LabViewportProps> = ({
   showTrajectory,
   showLabels,
   showForces = true,
+  showAirflow = false,
+  flightRunning = false,
   lightweight,
   equipment,
   viewMode,
@@ -2501,6 +2506,19 @@ export const LabViewportCanvas: React.FC<LabViewportProps> = ({
   const crossing = useMemo(() => findBeamCrossing(gatePath, gateX, gateHeight - rBall, rBall),
     [gatePath, gateX, gateHeight, rBall]);
   const gateDetected = elapsedTime > 0 && crossing !== undefined && elapsedTime >= crossing;
+  const windSpeed = experimentalEnv?.windSpeed ?? 0;
+  const airflowAnimating = showAirflow && isExp && (experimentalEnv?.airPressureKPa ?? 0) > 0.01
+    && (Math.abs(windSpeed) > 0.01 || flightRunning);
+  const airflowState = useRef({ left: muzzleX, right: ruler.right, windSpeed, vx: 0, vy: 0, flying: false, rBall });
+  airflowState.current = {
+    left: muzzleX,
+    right: ruler.right - 0.12,
+    windSpeed,
+    vx: currentState.vx,
+    vy: currentState.vy,
+    flying: flightRunning && elapsedTime < summary.time,
+    rBall,
+  };
 
   // 1. Initialize WebGLRenderer, Scene, Lights & Pointer Listeners ONCE (or when lightweight mode toggles)
   useEffect(() => {
@@ -2805,6 +2823,32 @@ export const LabViewportCanvas: React.FC<LabViewportProps> = ({
       renderer.dispose();
     };
   }, [lightweight]);
+
+  useEffect(() => {
+    const scene = sceneRef.current;
+    const camera = cameraRef.current;
+    const renderer = rendererRef.current;
+    const ball = ballMeshRef.current;
+    if (!airflowAnimating || !scene || !camera || !renderer || !ball) return;
+    const airflow = createAirflow(lightweight);
+    scene.add(airflow.group);
+    let frame = 0;
+    let previous = 0;
+    const animate = (now: number) => {
+      const dt = previous ? Math.min((now - previous) / 1000, 0.05) : 0;
+      previous = now;
+      const { left, right, windSpeed, vx, vy, flying, rBall } = airflowState.current;
+      airflow.update(dt, left, right, windSpeed, ball.position, vx, vy, flying, rBall);
+      renderer.render(scene, camera);
+      frame = requestAnimationFrame(animate);
+    };
+    frame = requestAnimationFrame(animate);
+    return () => {
+      cancelAnimationFrame(frame);
+      airflow.dispose();
+      if (rendererRef.current === renderer) renderer.render(scene, camera);
+    };
+  }, [airflowAnimating, lightweight]);
 
   useEffect(() => {
     if (viewMode === 'free' && !cameraLocked) rendererRef.current?.domElement.focus({ preventScroll: true });

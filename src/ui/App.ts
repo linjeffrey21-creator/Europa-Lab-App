@@ -233,6 +233,7 @@ export const App: React.FC = () => {
   const [showTrajectory, setShowTrajectory] = useState<boolean>(true);
   const [showLabels, setShowLabels] = useState<boolean>(true);
   const [showForces, setShowForces] = useState<boolean>(true);
+  const [showAirflow, setShowAirflow] = useState(true);
   const [lightweight, setLightweight] = useState<boolean>(false);
   const [instrumentPracticeMode, setInstrumentPracticeMode] = useState<boolean>(false);
 
@@ -2578,6 +2579,10 @@ export const App: React.FC = () => {
                 !hideGravity && h('button', { type: 'button', 'aria-pressed': showForces,
                   onClick: () => { setShowForces(!showForces); closeCameraMenu(); },
                 }, 'Show forces'),
+                isExp && h('button', {
+                  type: 'button', 'aria-pressed': showAirflow,
+                  onClick: () => { setShowAirflow(!showAirflow); closeCameraMenu(); },
+                }, 'Show airflow'),
                 h('button', { type: 'button', 'aria-pressed': !isMuted,
                   onClick: () => { setIsMuted(soundManager.toggleMute()); closeCameraMenu(); },
                 }, 'Sound'),
@@ -2659,6 +2664,8 @@ export const App: React.FC = () => {
               showTrajectory,
               showLabels,
               showForces: showForces && !hideGravity,
+              showAirflow: showAirflow && isExp,
+              flightRunning: simState === 'running',
               lightweight,
               equipment,
               viewMode,
