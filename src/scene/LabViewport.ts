@@ -3362,12 +3362,12 @@ export const LabViewportCanvas: React.FC<LabViewportProps> = ({
         if (magnitude <= 0) continue;
         const length = magnitude * scale;
         trajectoryHolder.add(createForceArrowMesh(direction, ballMesh.position, length, color));
-        if (length >= diagramSize * 0.1) {
-          const label = createForceLabelSprite(symbol);
-          label.scale.multiplyScalar(diagramSize / 0.22);
-          label.position.copy(ballMesh.position).addScaledVector(direction, length + diagramSize * 0.25);
-          trajectoryHolder.add(label);
-        }
+        const label = createForceLabelSprite(symbol);
+        label.scale.multiplyScalar(diagramSize / 0.22);
+        label.position.copy(ballMesh.position)
+          .addScaledVector(direction, Math.max(length, rBall) + diagramSize * 0.25);
+        if (symbol === 'd' && direction.y < -0.9) label.position.x += diagramSize * 0.32;
+        trajectoryHolder.add(label);
       }
     }
 
@@ -3409,11 +3409,6 @@ export const LabViewportCanvas: React.FC<LabViewportProps> = ({
     'div',
     { style: { width: '100%', height: '100%', position: 'relative' } },
     h('div', { ref: containerRef, style: { width: '100%', height: '100%' } }),
-    viewMode !== 'marble' && isExp && showAirflow && showTrajectory && showTheory && h('div', { className: 'airflow-legend' },
-      h('span', { className: 'airflow-ideal' }, 'No drag'),
-      h('span', { className: 'airflow-experimental' }, 'With drag'),
-      h('span', null, `Range Δ ${activeSummary.range - idealSummary.range >= 0 ? '+' : '−'}${Math.round(Math.abs(activeSummary.range - idealSummary.range) * 1000)} mm`)
-    ),
     showLabels && targetDistanceM !== null
       ? h(
           'div',
