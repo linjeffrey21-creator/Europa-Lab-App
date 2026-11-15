@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 
 export function createAirflow(lightweight: boolean) {
-  const count = lightweight ? 1800 : 5600;
+  const count = lightweight ? 6500 : 18000;
   const laneCount = lightweight ? 8 : 14;
   const localCount = laneCount * 7;
   const ambientPositions = new Float32Array(count * 3);
@@ -10,7 +10,7 @@ export function createAirflow(lightweight: boolean) {
   const localGeometry = new THREE.BufferGeometry();
   const ambient = new THREE.BufferAttribute(ambientPositions, 3);
   const local = new THREE.BufferAttribute(localPositions, 3);
-  ambientGeometry.setAttribute('position', ambient.setUsage(THREE.DynamicDrawUsage));
+  ambientGeometry.setAttribute('position', ambient);
   localGeometry.setAttribute('position', local.setUsage(THREE.DynamicDrawUsage));
   const dot = document.createElement('canvas');
   dot.width = dot.height = 16;
@@ -24,20 +24,38 @@ export function createAirflow(lightweight: boolean) {
   const dotTexture = new THREE.CanvasTexture(dot);
   const ambientMaterial = new THREE.PointsMaterial({
     color: '#32bed8',
-    size: 0.022,
+    size: 0.024,
     map: dotTexture,
     transparent: true,
-    opacity: 0.66,
+    opacity: 0.82,
     alphaTest: 0.08,
     depthWrite: false,
   });
+  const airClock = { value: 0 };
+  const airOffset = { value: 0 };
+  const calmMotion = { value: 1 };
+  const roomOrigin = { value: 0 };
+  const roomWidth = { value: 1 };
+  ambientMaterial.onBeforeCompile = shader => {
+    Object.assign(shader.uniforms, { airClock, airOffset, calmMotion, roomOrigin, roomWidth });
+    shader.vertexShader = `
+      uniform float airClock, airOffset, calmMotion, roomOrigin, roomWidth;
+      ${shader.vertexShader}
+    `.replace('#include <begin_vertex>', `
+      #include <begin_vertex>
+      // Small, zero-mean circulation makes still air visible without adding wind to the simulation.
+      float phase = airClock * 1.25 + dot(position, vec3(3.7, 2.4, 5.1));
+      transformed.x = roomOrigin + mod(position.x - roomOrigin + airOffset + calmMotion * 0.20 * sin(phase), roomWidth);
+      transformed.y += calmMotion * 0.095 * cos(phase * 1.37);
+      transformed.z += calmMotion * 0.085 * sin(phase * 0.83);
+    `);
+  };
   const localMaterial = new THREE.LineBasicMaterial({ color: '#00a9c9', transparent: true, opacity: 0.85, depthWrite: false });
   const wind = new THREE.Points(ambientGeometry, ambientMaterial);
   const relative = new THREE.LineSegments(localGeometry, localMaterial);
   wind.frustumCulled = relative.frustumCulled = false;
   const group = new THREE.Group();
   group.add(wind, relative);
-  let windTravel = 0;
   let previousBounds: THREE.Box3 | null = null;
   let relativeTravel = 0;
 
@@ -47,25 +65,27 @@ export function createAirflow(lightweight: boolean) {
       ball: THREE.Vector3, vx: number, vy: number, flying: boolean, ballRadius: number) {
       const length = bounds.max.x - bounds.min.x;
       const moving = Math.abs(windSpeed) > 0.01;
-      if (moving || bounds !== previousBounds) {
-        windTravel = THREE.MathUtils.euclideanModulo(windTravel + windSpeed * dt, length);
+      airClock.value += dt;
+      airOffset.value = THREE.MathUtils.euclideanModulo(airOffset.value + windSpeed * dt, length);
+      calmMotion.value = moving ? 0 : 1;
+      if (bounds !== previousBounds) {
+        roomOrigin.value = bounds.min.x;
+        roomWidth.value = length;
         const height = bounds.max.y - bounds.min.y;
         const depth = bounds.max.z - bounds.min.z;
         for (let i = 0; i < count; i++) {
-          const x = bounds.min.x + ((i * 0.8191725 + windTravel / length) % 1) * length;
-          const y = bounds.min.y + (i * 0.6710436 % 1) * height;
-          const z = bounds.min.z + (i * 0.5497005 % 1) * depth;
+          const x = bounds.min.x + (i * 0.8191725 % 1) * length;
+          const y = bounds.min.y + 0.10 + (i * 0.6710436 % 1) * (height - 0.20);
+          const z = bounds.min.z + 0.09 + (i * 0.5497005 % 1) * (depth - 0.18);
           ambient.setXYZ(i, x, y, z);
         }
         ambient.needsUpdate = true;
       }
-      const roomChanged = bounds !== previousBounds;
       previousBounds = bounds;
 
       const flowX = windSpeed - vx;
       const flowY = -vy;
       const relativeSpeed = Math.hypot(flowX, flowY);
-      const wasVisible = relative.visible;
       relative.visible = flying && relativeSpeed > 0.01;
       if (relative.visible) {
         relative.position.copy(ball);
@@ -83,7 +103,6 @@ export function createAirflow(lightweight: boolean) {
         }
         local.needsUpdate = true;
       }
-      return roomChanged || moving || relative.visible || wasVisible;
     },
     dispose() {
       group.removeFromParent();

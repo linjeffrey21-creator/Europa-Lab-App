@@ -2789,7 +2789,8 @@ export const LabViewportCanvas: React.FC<LabViewportProps> = ({
       const { windSpeed, vx, vy, flying, rBall } = airflowState.current;
       if (bounds) {
         airflow.group.visible = true;
-        if (airflow.update(dt, bounds, windSpeed, ball.position, vx, vy, flying, rBall)) renderer.render(scene, camera);
+        airflow.update(dt, bounds, windSpeed, ball.position, vx, vy, flying, rBall);
+        renderer.render(scene, camera);
       }
       frame = requestAnimationFrame(animate);
     };
