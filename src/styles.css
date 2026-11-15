@@ -975,6 +975,45 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   touch-action: none;
 }
 
+.photogate-controls {
+  position: absolute;
+  right: 12px;
+  bottom: 32px;
+  z-index: 3;
+  padding: 7px 10px;
+  border: 1px solid #cbd5d8;
+  border-radius: 5px;
+  background: #fff;
+  color: #26352f;
+  font-size: 12px;
+}
+
+.photogate-controls summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.photogate-controls summary span {
+  margin-left: 8px;
+  color: #276449;
+  font-weight: 500;
+}
+
+.photogate-controls summary span[data-detected="true"] {
+  color: #8c4b09;
+}
+
+.photogate-controls label {
+  display: grid;
+  gap: 3px;
+  margin-top: 8px;
+}
+
+.photogate-hint {
+  margin-top: 7px;
+  color: #53615b;
+}
+
 .viewport-top, .view-bottom {
   position: absolute;
   left: 16px;
