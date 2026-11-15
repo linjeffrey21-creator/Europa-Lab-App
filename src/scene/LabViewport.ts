@@ -2495,7 +2495,8 @@ export const LabViewportCanvas: React.FC<LabViewportProps> = ({
   );
   const windSpeed = experimentalEnv?.windSpeed ?? 0;
   const inFlight = elapsedTime > 0 && elapsedTime < summary.time;
-  const airflowEnabled = showAirflow && isExp && (experimentalEnv?.airPressureKPa ?? 0) > 0.01;
+  const airflowEnabled = showAirflow && isExp && (experimentalEnv?.airPressureKPa ?? 0) > 0.01
+    && (viewMode === 'marble' ? inFlight : windSpeed !== 0);
   const airflowState = useRef({ windSpeed, vx: 0, vy: 0, flying: false, rBall });
   airflowState.current = {
     windSpeed,

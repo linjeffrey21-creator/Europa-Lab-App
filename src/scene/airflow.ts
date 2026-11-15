@@ -47,23 +47,17 @@ export function createAirflow(lightweight: boolean) {
     alphaTest: 0.08,
     depthWrite: false,
   });
-  const airClock = { value: 0 };
   const airOffset = { value: 0 };
-  const calmMotion = { value: 1 };
   const roomOrigin = { value: 0 };
   const roomWidth = { value: 1 };
   ambientMaterial.onBeforeCompile = shader => {
-    Object.assign(shader.uniforms, { airClock, airOffset, calmMotion, roomOrigin, roomWidth });
+    Object.assign(shader.uniforms, { airOffset, roomOrigin, roomWidth });
     shader.vertexShader = `
-      uniform float airClock, airOffset, calmMotion, roomOrigin, roomWidth;
+      uniform float airOffset, roomOrigin, roomWidth;
       ${shader.vertexShader}
     `.replace('#include <begin_vertex>', `
       #include <begin_vertex>
-      // Small, zero-mean circulation makes still air visible without adding wind to the simulation.
-      float phase = airClock * 1.25 + dot(position, vec3(3.7, 2.4, 5.1));
-      transformed.x = roomOrigin + mod(position.x - roomOrigin + airOffset + calmMotion * 0.20 * sin(phase), roomWidth);
-      transformed.y += calmMotion * 0.095 * cos(phase * 1.37);
-      transformed.z += calmMotion * 0.085 * sin(phase * 0.83);
+      transformed.x = roomOrigin + mod(position.x - roomOrigin + airOffset, roomWidth);
     `);
   };
   const flowPhase = { value: 0 };
@@ -97,12 +91,9 @@ export function createAirflow(lightweight: boolean) {
     group,
     update(dt: number, bounds: THREE.Box3, windSpeed: number,
       ball: THREE.Vector3, vx: number, vy: number, flying: boolean, ballRadius: number, focusOnMarble: boolean) {
-      wind.visible = !focusOnMarble;
+      wind.visible = !focusOnMarble && windSpeed !== 0;
       const length = bounds.max.x - bounds.min.x;
-      const moving = Math.abs(windSpeed) > 0.01;
-      airClock.value += dt;
       airOffset.value = THREE.MathUtils.euclideanModulo(airOffset.value + windSpeed * dt, length);
-      calmMotion.value = moving ? 0 : 1;
       if (bounds !== previousBounds) {
         roomOrigin.value = bounds.min.x;
         roomWidth.value = length;
