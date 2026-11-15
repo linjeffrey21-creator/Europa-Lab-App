@@ -1407,7 +1407,7 @@ function buildRealisticClassroomEnvironment(
 
   // Architectural Room Limits (clean 90° miter corner; left wall starts at backWallZ, back wall starts at leftWallX)
   const leftWallX = Math.min(-3.6, posterX - 0.53 - 0.75);
-  const roomRightX = Math.max(benchCenterX + benchExtent / 2 + 3.2, cabRight + 2.0);
+  const roomRightX = Math.max(benchCenterX + benchExtent / 2 + 1.35, cabRight + 0.95);
   const backWallWidth = roomRightX - leftWallX;
   const leftWallDepth = 12.0;
   const frontZ = backWallZ + leftWallDepth;
@@ -1488,6 +1488,14 @@ function buildRealisticClassroomEnvironment(
   addLeftWall('left-wall-below-window', windowLowZ, windowHighZ, floorY, windowSillY);
   addLeftWall('left-wall-above-window', windowLowZ, windowHighZ, windowHeadY, wallTop);
 
+  const sideWallCenterZ = (backWallZ + frontZ) / 2;
+  const rightWall = new THREE.Mesh(new THREE.PlaneGeometry(leftWallDepth, wallTop - floorY), leftWallMat);
+  rightWall.name = 'classroom-right-wall';
+  rightWall.rotation.y = -Math.PI / 2;
+  rightWall.position.set(roomRightX, (floorY + wallTop) / 2, sideWallCenterZ);
+  rightWall.receiveShadow = !lightweight;
+  roomGroup.add(rightWall);
+
   // Lower Wainscoting Paneling, Dark Vinyl Cove Baseboard & Warm Hardwood Chair Rail
   const wainscotTex = lightweight ? null : createWainscotTexture();
   const wainscotBump = lightweight ? null : createWainscotBumpTexture();
@@ -1509,6 +1517,17 @@ function buildRealisticClassroomEnvironment(
     roughness: 0.48,
     metalness: 0.06,
   });
+  const addRightTrim = (name: string, height: number, thickness: number, centerY: number, material: THREE.Material) => {
+    const trim = new THREE.Mesh(new THREE.BoxGeometry(leftWallDepth, height, thickness), material);
+    trim.name = name;
+    trim.rotation.y = -Math.PI / 2;
+    trim.position.set(roomRightX - thickness / 2 - 0.001, floorY + centerY, sideWallCenterZ);
+    trim.receiveShadow = !lightweight;
+    roomGroup.add(trim);
+  };
+  addRightTrim('right-wainscot', 1.15, 0.015, 0.575, wainscotMat);
+  addRightTrim('right-baseboard', 0.12, 0.028, 0.06, baseboardMat);
+  addRightTrim('right-chair-rail', 0.05, 0.032, 1.15, chairRailMat);
 
   // Back wall wainscot stops cleanly at left corner chair rail and at cabinet gables
   // so it never intersects or penetrates the left wall trim or the cabinet!
@@ -3405,7 +3424,6 @@ export const LabViewportCanvas: React.FC<LabViewportProps> = ({
     'div',
     { style: { width: '100%', height: '100%', position: 'relative' } },
     h('div', { ref: containerRef, style: { width: '100%', height: '100%' } }),
-    viewMode === 'marble' && airflowEnabled && h('div', { className: 'airflow-legend' }, 'Illustrative airflow around the marble'),
     viewMode !== 'marble' && isExp && showAirflow && showTrajectory && showTheory && h('div', { className: 'airflow-legend' },
       h('span', { className: 'airflow-ideal' }, 'No drag'),
       h('span', { className: 'airflow-experimental' }, 'With drag'),
