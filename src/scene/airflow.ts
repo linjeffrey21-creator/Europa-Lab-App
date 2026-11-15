@@ -1,17 +1,22 @@
 import * as THREE from 'three';
 
 export function createAirflow(lightweight: boolean) {
-  const count = lightweight ? 6500 : 18000;
-  const laneCount = lightweight ? 8 : 14;
-  const localCount = laneCount * 7;
+  const count = lightweight ? 24000 : 120000;
+  const localCount = lightweight ? 8000 : 42000;
   const ambientPositions = new Float32Array(count * 3);
-  const localPositions = new Float32Array(localCount * 6);
+  const localPositions = new Float32Array(localCount * 3);
   const ambientGeometry = new THREE.BufferGeometry();
   const localGeometry = new THREE.BufferGeometry();
   const ambient = new THREE.BufferAttribute(ambientPositions, 3);
   const local = new THREE.BufferAttribute(localPositions, 3);
   ambientGeometry.setAttribute('position', ambient);
-  localGeometry.setAttribute('position', local.setUsage(THREE.DynamicDrawUsage));
+  localGeometry.setAttribute('position', local);
+  for (let i = 0; i < localCount; i++) {
+    const phase = i * 0.61803398875 % 1;
+    const azimuth = (i * 0.75487766625 % 1) * Math.PI * 2;
+    const radius = 0.02 + Math.pow(i * 0.56984029099 % 1, 0.85) * 7;
+    local.setXYZ(i, phase, radius * Math.cos(azimuth), radius * Math.sin(azimuth));
+  }
   const dot = document.createElement('canvas');
   dot.width = dot.height = 16;
   const dotContext = dot.getContext('2d');
@@ -24,10 +29,10 @@ export function createAirflow(lightweight: boolean) {
   const dotTexture = new THREE.CanvasTexture(dot);
   const ambientMaterial = new THREE.PointsMaterial({
     color: '#32bed8',
-    size: 0.024,
+    size: 0.011,
     map: dotTexture,
     transparent: true,
-    opacity: 0.82,
+    opacity: 0.48,
     alphaTest: 0.08,
     depthWrite: false,
   });
@@ -50,19 +55,38 @@ export function createAirflow(lightweight: boolean) {
       transformed.z += calmMotion * 0.085 * sin(phase * 0.83);
     `);
   };
-  const localMaterial = new THREE.LineBasicMaterial({ color: '#00a9c9', transparent: true, opacity: 0.85, depthWrite: false });
+  const flowPhase = { value: 0 };
+  const localMaterial = new THREE.PointsMaterial({
+    color: '#18b7d2', size: 0.0015, map: dotTexture, transparent: true,
+    opacity: 0.58, alphaTest: 0.08, depthWrite: false,
+  });
+  localMaterial.onBeforeCompile = shader => {
+    shader.uniforms.flowPhase = flowPhase;
+    shader.vertexShader = 'uniform float flowPhase;\n' + shader.vertexShader.replace('#include <begin_vertex>', `
+      #include <begin_vertex>
+      // Display streamlines in marble radii, curving in all azimuths around the sphere.
+      float x = fract(position.x + flowPhase) * 30.0 - 11.0;
+      float radius = length(position.yz);
+      float bend = 1.22 * exp(-x * x * 0.37 - radius * radius * 0.32);
+      float exclusion = sqrt(max(0.0, 1.04 * 1.04 - x * x));
+      float offset = max(radius + bend, exclusion);
+      transformed = vec3(x, position.yz * (offset / radius));
+    `);
+  };
+  // PointsMaterial otherwise shares its stock shader cache with standard point clouds.
+  localMaterial.customProgramCacheKey = () => 'marble-relative-airflow';
   const wind = new THREE.Points(ambientGeometry, ambientMaterial);
-  const relative = new THREE.LineSegments(localGeometry, localMaterial);
+  const relative = new THREE.Points(localGeometry, localMaterial);
   wind.frustumCulled = relative.frustumCulled = false;
   const group = new THREE.Group();
   group.add(wind, relative);
   let previousBounds: THREE.Box3 | null = null;
-  let relativeTravel = 0;
 
   return {
     group,
     update(dt: number, bounds: THREE.Box3, windSpeed: number,
-      ball: THREE.Vector3, vx: number, vy: number, flying: boolean, ballRadius: number) {
+      ball: THREE.Vector3, vx: number, vy: number, flying: boolean, ballRadius: number, focusOnMarble: boolean) {
+      wind.visible = !focusOnMarble;
       const length = bounds.max.x - bounds.min.x;
       const moving = Math.abs(windSpeed) > 0.01;
       airClock.value += dt;
@@ -90,18 +114,8 @@ export function createAirflow(lightweight: boolean) {
       if (relative.visible) {
         relative.position.copy(ball);
         relative.rotation.z = Math.atan2(flowY, flowX);
-        const span = Math.max(0.54, 24 * ballRadius);
-        relativeTravel = THREE.MathUtils.euclideanModulo(relativeTravel + relativeSpeed * dt, span);
-        const tail = THREE.MathUtils.clamp(relativeSpeed * 0.012, 0.018, 0.06);
-        for (let i = 0; i < localCount; i++) {
-          const lane = i % laneCount - (laneCount - 1) / 2;
-          const x = THREE.MathUtils.euclideanModulo(Math.floor(i / laneCount) * span / 7 + i * 0.013 + relativeTravel, span) - span * 0.35;
-          const y = lane * Math.max(0.012, ballRadius * 0.65);
-          const deflect = (at: number) => y + Math.sign(y) * ballRadius * Math.exp(-Math.pow(at / (2.4 * ballRadius), 2) - Math.abs(lane) * 0.25);
-          local.setXYZ(i * 2, x, deflect(x), 0);
-          local.setXYZ(i * 2 + 1, x - tail, deflect(x - tail), 0);
-        }
-        local.needsUpdate = true;
+        relative.scale.setScalar(ballRadius);
+        flowPhase.value = (flowPhase.value + relativeSpeed * dt / (30 * ballRadius)) % 1;
       }
     },
     dispose() {

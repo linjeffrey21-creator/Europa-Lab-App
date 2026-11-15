@@ -15,8 +15,7 @@ import {
   evaluateProjectileState,
   LANDING_TARGET_RADIUS_M,
   sampleTrajectory,
-  calculateProjectileMass,
-  calculateAirDensity,
+  calculateProjectileForces,
 } from '../physics/projectile.ts';
 import type { ProjectileApparatusSpec } from '../equipment/schema.ts';
 import {
@@ -56,7 +55,7 @@ function useLauncherAsset(equipmentId: string) {
   return ready;
 }
 
-export type CameraViewMode = 'experiment' | 'close' | 'side' | 'top' | 'free';
+export type CameraViewMode = 'experiment' | 'close' | 'marble' | 'side' | 'top' | 'free';
 export type LockedCameraPose = { position: THREE.Vector3; quaternion: THREE.Quaternion };
 
 function fitExperimentOrbit(
@@ -147,9 +146,10 @@ function createForceArrowMesh(
   const normDir = dir.clone().normalize();
   if (normDir.lengthSq() < 0.0001) return group;
 
-  const headLen = Math.min(0.065, Math.max(0.035, length * 0.28));
-  const headWidth = Math.max(0.024, thickness * 3.4);
-  const shaftLen = Math.max(0.01, length - headLen);
+  const headLen = length * 0.28;
+  const shaftWidth = Math.min(thickness, length * 0.035);
+  const headWidth = shaftWidth * 3.4;
+  const shaftLen = length - headLen;
 
   const color = new THREE.Color(colorHex);
   const mat = new THREE.MeshBasicMaterial({
@@ -159,7 +159,7 @@ function createForceArrowMesh(
   });
 
   // Shaft cylinder
-  const shaftGeo = new THREE.CylinderGeometry(thickness, thickness, shaftLen, 16);
+  const shaftGeo = new THREE.CylinderGeometry(shaftWidth, shaftWidth, shaftLen, 16);
   const shaft = new THREE.Mesh(shaftGeo, mat);
   shaft.position.y = shaftLen / 2;
 
@@ -2594,7 +2594,7 @@ export const LabViewportCanvas: React.FC<LabViewportProps> = ({
     const updateCameraFromOrbit = () => {
       const st = orbitStateRef.current;
       st.phi = Math.max(0.08, Math.min(Math.PI / 2 + 0.12, st.phi));
-      const minRadius = viewModeRef.current === 'close' ? 0.34 : 0.65;
+      const minRadius = viewModeRef.current === 'marble' ? 0.075 : viewModeRef.current === 'close' ? 0.34 : 0.65;
       st.radius = Math.max(minRadius, Math.min(11, st.radius));
 
       const x = st.target.x + st.radius * Math.sin(st.phi) * Math.sin(st.theta);
@@ -2789,7 +2789,7 @@ export const LabViewportCanvas: React.FC<LabViewportProps> = ({
       const { windSpeed, vx, vy, flying, rBall } = airflowState.current;
       if (bounds) {
         airflow.group.visible = true;
-        airflow.update(dt, bounds, windSpeed, ball.position, vx, vy, flying, rBall);
+        airflow.update(dt, bounds, windSpeed, ball.position, vx, vy, flying, rBall, viewModeRef.current === 'marble');
         renderer.render(scene, camera);
       }
       frame = requestAnimationFrame(animate);
@@ -3109,7 +3109,12 @@ export const LabViewportCanvas: React.FC<LabViewportProps> = ({
     framedViewRef.current = { viewMode, resetKey, lightweight };
     const midX = muzzleX + Math.max(0.75, summary.range * 0.45);
     const st = orbitStateRef.current;
-    if (viewMode === 'close') {
+    if (viewMode === 'marble') {
+      st.target.set(muzzleX + currentState.x, currentState.y + rBall, zMountOffset);
+      st.theta = -0.28;
+      st.phi = 1.38;
+      st.radius = Math.max(0.17, rBall * 17);
+    } else if (viewMode === 'close') {
       st.target.set(pose.pivot[0] * 0.5, Math.max(0.28, params.height * 0.52), zMountOffset);
       st.theta = 0.52;
       st.phi = 1.12;
@@ -3164,6 +3169,10 @@ export const LabViewportCanvas: React.FC<LabViewportProps> = ({
     if (!scene || !camera || !renderer || !ballMesh || !trajectoryHolder) return;
 
     ballMesh.position.set(muzzleX + currentState.x, currentState.y + rBall, zMountOffset);
+    if (viewMode === 'marble' && !cameraLockedRef.current) {
+      orbitStateRef.current.target.copy(ballMesh.position);
+      updateCameraFnRef.current?.();
+    }
     const stand = landingStandRef.current;
     if (stand) {
       const standX = muzzleX + (targetDistanceM ?? activeSummary.range);
@@ -3187,7 +3196,7 @@ export const LabViewportCanvas: React.FC<LabViewportProps> = ({
     for (const material of oldMaterials) material.dispose();
     trajectoryHolder.clear();
 
-    if (showTrajectory) {
+    if (showTrajectory && viewMode !== 'marble') {
       if (isExp && experimentalEnv) {
         // 1. Ideal Vacuum Theoretical Path (dashed amber tube) - strictly ONLY when showTheory is true!
         if (showTheory) {
@@ -3336,90 +3345,24 @@ export const LabViewportCanvas: React.FC<LabViewportProps> = ({
     ballMesh.material.metalness = aluminumBall ? 0.56 : 0.84;
     ballMesh.material.roughness = aluminumBall ? 0.29 : 0.18;
 
-    // 5. 3D Free-Body Diagram (FBD) Force Vectors & Billboard Labels
-    if (showForces) {
-      const massKg = calculateProjectileMass(
-        equipment.dimensions.projectileDiameter,
-        projMaterial ?? 'steel'
-      );
-      const fgMag = massKg * params.gravity;
-      const ballCenter = new THREE.Vector3(
-        muzzleX + currentState.x,
-        currentState.y + rBall,
-        zMountOffset
-      );
-
-      // 1. Gravity Force Vector (Downward - Blue)
-      const fgDir = new THREE.Vector3(0, -1, 0);
-      const fgLen = 0.22;
-      const fgArrow = createForceArrowMesh(fgDir, ballCenter, fgLen, '#2563eb', 0.0075);
-      trajectoryHolder.add(fgArrow);
-
-      const fgLabelPos = ballCenter.clone().add(new THREE.Vector3(0.065, -fgLen, 0));
-      const fgLabel = createForceLabelSprite('g');
-      fgLabel.position.copy(fgLabelPos);
-      trajectoryHolder.add(fgLabel);
-
-      // 2. Aerodynamic Drag & Net Resultant Force (when drag is active and in flight)
-      if (isExp && experimentalEnv && experimentalEnv.enableDrag) {
-        const rho = calculateAirDensity(
-          experimentalEnv.airPressureKPa,
-          experimentalEnv.temperatureC
-        );
-        const radius = equipment.dimensions.projectileDiameter / 2;
-        const area = Math.PI * radius * radius;
-        const cd = experimentalEnv.dragCoefficient;
-        const w = experimentalEnv.windSpeed || 0;
-        const vrelX = currentState.vx - w;
-        const vrelY = currentState.vy;
-        const vrel = Math.hypot(vrelX, vrelY);
-
-        if (vrel > 0.02) {
-          const fdragMag = 0.5 * rho * cd * area * vrel * vrel;
-          const fdNormX = -vrelX / vrel;
-          const fdNormY = -vrelY / vrel;
-          const fdDir = new THREE.Vector3(fdNormX, fdNormY, 0);
-
-          if (fdragMag > 0.0003) {
-            const fdLen = Math.max(
-              0.08,
-              Math.min(0.30, (fdragMag / Math.max(fgMag, 0.01)) * 0.22)
-            );
-            const fdArrow = createForceArrowMesh(fdDir, ballCenter, fdLen, '#ea580c', 0.0075);
-            trajectoryHolder.add(fdArrow);
-
-            const fdLabelPos = ballCenter.clone().addScaledVector(fdDir, fdLen + 0.055);
-            const fdLabel = createForceLabelSprite('d');
-            fdLabel.position.copy(fdLabelPos);
-            trajectoryHolder.add(fdLabel);
-
-            // Net Force (Vector sum of Fg and Fdrag)
-            const fnetX = fdragMag * fdNormX;
-            const fnetY = -fgMag + fdragMag * fdNormY;
-            const fnetMag = Math.hypot(fnetX, fnetY);
-            if (fnetMag > 0.001) {
-              const fnetDir = new THREE.Vector3(fnetX / fnetMag, fnetY / fnetMag, 0);
-              const fnetLen = Math.max(
-                0.08,
-                Math.min(0.35, (fnetMag / Math.max(fgMag, 0.01)) * 0.22)
-              );
-              const fnetArrow = createForceArrowMesh(
-                fnetDir,
-                ballCenter,
-                fnetLen,
-                '#7c3aed',
-                0.008
-              );
-              trajectoryHolder.add(fnetArrow);
-
-              const fnetLabelPos = ballCenter.clone()
-                .addScaledVector(fnetDir, fnetLen)
-                .add(new THREE.Vector3(-0.07, 0, 0));
-              const fnetLabel = createForceLabelSprite('net');
-              fnetLabel.position.copy(fnetLabelPos);
-              trajectoryHolder.add(fnetLabel);
-            }
-          }
+    // Draw the individual forces on the marble. The resultant is shown in the readings.
+    if (showForces && inFlight && viewMode !== 'marble') {
+      const air = isExp ? experimentalEnv : undefined;
+      const forces = calculateProjectileForces(params.gravity, currentState,
+        air?.projectileDiameter ?? equipment.dimensions.projectileDiameter, projMaterial ?? 'steel', air);
+      const scale = 0.22 / Math.max(forces.weight, forces.drag, 1e-9);
+      const components = [
+        { direction: new THREE.Vector3(0, -1, 0), magnitude: forces.weight, color: '#2563eb', symbol: 'g' as const },
+        { direction: new THREE.Vector3(forces.dragX, forces.dragY, 0).normalize(), magnitude: forces.drag, color: '#ea580c', symbol: 'd' as const },
+      ];
+      for (const { direction, magnitude, color, symbol } of components) {
+        if (magnitude <= 0) continue;
+        const length = magnitude * scale;
+        trajectoryHolder.add(createForceArrowMesh(direction, ballMesh.position, length, color));
+        if (length >= 0.022) {
+          const label = createForceLabelSprite(symbol);
+          label.position.copy(ballMesh.position).addScaledVector(direction, length + 0.055);
+          trajectoryHolder.add(label);
         }
       }
     }
@@ -3436,6 +3379,7 @@ export const LabViewportCanvas: React.FC<LabViewportProps> = ({
     chalkboardMode,
     chalkboardCustomImage,
     elapsedTime,
+    viewMode,
     params.angle,
     params.speed,
     params.height,
@@ -3461,7 +3405,8 @@ export const LabViewportCanvas: React.FC<LabViewportProps> = ({
     'div',
     { style: { width: '100%', height: '100%', position: 'relative' } },
     h('div', { ref: containerRef, style: { width: '100%', height: '100%' } }),
-    isExp && showAirflow && showTrajectory && showTheory && h('div', { className: 'airflow-legend' },
+    viewMode === 'marble' && airflowEnabled && h('div', { className: 'airflow-legend' }, 'Illustrative airflow around the marble'),
+    viewMode !== 'marble' && isExp && showAirflow && showTrajectory && showTheory && h('div', { className: 'airflow-legend' },
       h('span', { className: 'airflow-ideal' }, 'No drag'),
       h('span', { className: 'airflow-experimental' }, 'With drag'),
       h('span', null, `Range Δ ${activeSummary.range - idealSummary.range >= 0 ? '+' : '−'}${Math.round(Math.abs(activeSummary.range - idealSummary.range) * 1000)} mm`)

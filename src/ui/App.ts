@@ -26,6 +26,7 @@ import {
   simulateExperimentalTrial,
   calculateAirDensity,
   calculateProjectileMass,
+  calculateProjectileForces,
   evaluateProjectileState,
   LANDING_TARGET_RADIUS_M,
   sampleTrajectory,
@@ -528,28 +529,11 @@ export const App: React.FC = () => {
 
   // Live Newtonian Forces (FBD)
   const projMaterial = isExp ? experimentalEnv.material : equipment.projectileMaterial ?? 'steel';
-  const liveMassKg = calculateProjectileMass(equipment.dimensions.projectileDiameter, projMaterial);
-  const liveFg = liveMassKg * params.gravity;
-  let liveFdrag = 0;
-  let liveFnet = liveFg;
-  if (isExp && experimentalEnv.enableDrag) {
-    const rho = calculateAirDensity(experimentalEnv.airPressureKPa, experimentalEnv.temperatureC);
-    const radius = equipment.dimensions.projectileDiameter / 2;
-    const area = Math.PI * radius * radius;
-    const cd = experimentalEnv.dragCoefficient;
-    const w = experimentalEnv.windSpeed || 0;
-    const vrelX = liveState.vx - w;
-    const vrelY = liveState.vy;
-    const vrel = Math.hypot(vrelX, vrelY);
-    if (vrel > 0.001) {
-      liveFdrag = 0.5 * rho * cd * area * vrel * vrel;
-      const fdragX = -liveFdrag * (vrelX / vrel);
-      const fdragY = -liveFdrag * (vrelY / vrel);
-      const fnetX = fdragX;
-      const fnetY = -liveFg + fdragY;
-      liveFnet = Math.hypot(fnetX, fnetY);
-    }
-  }
+  const flightAir = isExp ? experimentalEnv : undefined;
+  const { mass: liveMassKg, weight: liveFg, drag: liveFdrag, net: liveFnet } = calculateProjectileForces(
+    params.gravity, liveState, flightAir?.projectileDiameter ?? equipment.dimensions.projectileDiameter,
+    projMaterial, flightAir
+  );
 
   const isVariableLocked = (key: ExperimentVariable) => (sharedAssignment || mode === 'student') && teacherConfig.adjustable[key] !== true;
   const landingHeightLocked = isVariableLocked('landingHeight');
@@ -2569,6 +2553,9 @@ export const App: React.FC = () => {
                 h('button', { type: 'button', 'aria-pressed': viewMode === 'close',
                   onClick: () => { selectCameraView('close'); closeCameraMenu(); },
                 }, 'Close-up'),
+                h('button', { type: 'button', 'aria-pressed': viewMode === 'marble',
+                  onClick: () => { selectCameraView('marble'); closeCameraMenu(); },
+                }, 'Focus on marble'),
                 h('button', { type: 'button', onClick: () => {
                   setCameraLocked(false);
                   lockedCameraPose.current = null;
@@ -2631,7 +2618,8 @@ export const App: React.FC = () => {
                     ] : []),
                   ])
                 ),
-                showForces && !hideGravity && h('section', { className: 'readout-section' },
+                showForces && !hideGravity && elapsedTime > 0 && elapsedTime < summary.time
+                  && h('section', { className: 'readout-section' },
                   h('div', { className: 'readout-section-title' },
                     h('strong', null, 'Forces'),
                     h('span', null, 'Mass ' + formatMeasurement((liveMassKg * 1000)) + ' g')

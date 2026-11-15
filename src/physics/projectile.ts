@@ -520,6 +520,29 @@ export function evaluateProjectileState(
   };
 }
 
+export function calculateProjectileForces(
+  gravity: number,
+  velocity: Pick<KinematicState, 'vx' | 'vy'>,
+  diameter: number,
+  material: ProjectileMaterial,
+  air?: ExperimentalEnvironment
+) {
+  const mass = calculateProjectileMass(diameter, material);
+  const weight = mass * gravity;
+  let dragX = 0;
+  let dragY = 0;
+  if (air?.enableDrag && air.airPressureKPa > 0.01) {
+    const relativeX = velocity.vx - (air.windSpeed || 0);
+    const relativeY = velocity.vy;
+    const area = Math.PI * (diameter / 2) ** 2;
+    const density = calculateAirDensity(air.airPressureKPa, air.temperatureC);
+    const factor = -0.5 * density * air.dragCoefficient * area * Math.hypot(relativeX, relativeY);
+    dragX = factor * relativeX;
+    dragY = factor * relativeY;
+  }
+  return { mass, weight, dragX, dragY, drag: Math.hypot(dragX, dragY), net: Math.hypot(dragX, dragY - weight) };
+}
+
 /**
  * Evaluates instantaneous position and velocity under quadratic drag at elapsed time t.
  */
