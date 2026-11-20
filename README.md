@@ -46,3 +46,8 @@ npm run serve
 Open [http://127.0.0.1:4173/](http://127.0.0.1:4173/). For optional Gemini-assisted import, set `GEMINI_API_KEY` in a local `.env` file or in your deployment environment.
 
 Built with **TypeScript**, **Three.js**, **Blender**, **Node.js**, and **Vercel**, with the **Gemini API** for assisted equipment import.
+
+
+## AI attribution
+
+I used GPT-Sol in Codex to help implement and debug parts of the physics simulation, graphing tools, and interface. The optional equipment importer uses the Google Gemini API to identify supported launchers from product links or photos and help draft approximate models for unfamiliar equipment.
